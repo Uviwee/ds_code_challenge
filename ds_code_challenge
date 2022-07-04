@@ -1,1 +1,110 @@
+#Library's used
+library(tidyverse)
+library(readr)
+library(rjson)
+library(sf)
+library(ggplot2)
+library(geojsonR)
+library(ggmap)
+library(rgdal)
+library(forecast)
+library(lubridate)
+library(caret)
+library(h3)
+
+#Initial Data Transformation
+
+city_hex_polygons_8 = "https://cct-ds-code-challenge-input-data.s3.af-south-1.amazonaws.com/city-hex-polygons-8.geojson" 
+city_hex_polygons_8a_url_js = FROM_GeoJson(url_file_string = city_hex_polygons_8)
+names(city_hex_polygons_8a_url_js)
+str(city_hex_polygons_8a_url_js)
+
+
+#Place in data frame
+city_hex_polygons_8a_url_jsdf <- as.data.frame(city_hex_polygons_8a_url_js)
+summary(city_hex_polygons_8a_url_jsdf)
+
+#output as csv file
+write.csv(city_hex_polygons_8a_url_jsdf, file = "city_hex_poly.csv")
+
+#read service request 
+sr <- read_csv("~/R/ds_code_challenge-main/in/sr.csv")
+View(sr)
+
+
+#steps to combining sr and city hex polygon 8
+
+city_hex_polygons_8 <- rgdal::readOGR("https://cct-ds-code-challenge-input-data.s3.af-south-1.amazonaws.com/city-hex-polygons-8.geojson")
+class(city_hex_polygons_8)
+mode(city_hex_polygons_8)
+length(city_hex_polygons_8)
+myDF <- fortify(city_hex_polygons_8)
+class(myDF)
+head(myDF)
+dim(myDF)
+names(myDF)
+myDF1 <- rename(myDF, "longitude" = "long", "latitude" = "lat")
+
+view(myDF1)
+write.csv(myDF1, file = "city_hex_poly8.csv")
+
+
+#combine 
+sr_hex_8 <- left_join(sr, myDF1, by = c("longitude", "latitude"))
+write.csv(sr_hex_8, file = "sr_hex_poly8.join.csv")
+view(sr_hex_8)
+
+sr_hex_8a = subset(sr_hex_8, select = -c(order, hole, piece, id, group))
+is.na(sr_hex_8a)
+sr_hex_8a$latitude[is.na(sr_hex_8a$latitude)] <- 0      #For any requests where the Latitude and Longitude fields are empty, set the index value to 0
+sr_hex_8a$longitude[is.na(sr_hex_8a$longitude)] <- 0
+is.na(sr_hex_8a)
+write.csv(sr_hex_8a, file = "sr_hex_poly8.joinF.csv")
+
+#add h3 index on above df***
+sr_hex_8aH3 <- list(lat = 29.7632836, lon = -95.3632715)
+
+
+
+## Predictive analyses 1.
+
+sr_hex <- read_csv("~/R/ds_code_challenge-main/in/sr_hex.csv")
+names(sr_hex)
+view(sr_hex)
+
+# creating time series object 
+# from date 22 January, 2020 
+sr_hex_ts <- ts(sr_hex, start = decimal_date(ymd("2020-01-01")), 
+                frequency = 365 / 7) 
+
+# forecasting model using arima model 
+fit <- forecast(sr_hex_ts) 
+
+# Next 4 forecasted values 
+forecast(fit, 4) 
+
+# plotting the graph with next  
+# 4 weekly forecasted values 
+plot(forecast(fit, 4), xlab ="creation_timestamp", 
+     ylab ="h3_level8_index", 
+     main ="creation vs h3_index", col.main ="darkgreen") 
+
+
+#Introspection challenge:
+#Reshape the data into number of requests created, per type, per H3 level 8 hex in the last 12 months.
+sr_hex_reshape <- select(sr_hex, creation_timestamp, code, h3_level8_index) 
+summary(sr_hex_reshape)
+sr_hex_reshape1 <- group_by(sr_hex_reshape, creation_timestamp, code, h3_level8_index)
+head(sr_hex_reshape1)
+view(sr_hex_reshape1)
+
+#Choose a type, and then develop a model that predicts the number of requests of that type per hex.
+type <- filter(sr_hex_reshape, code == "Pothole&Defect Road Foot Bic Way/Kerbs")
+
+#model
+str(sr_hex_reshape)
+sr_hex_reshape$creation_timestamp = as.numeric(sr_hex_reshape$creation_timestamp)
+lm(creation_timestamp~code+h3_level8_index, data=sr_hex_reshape)
+
+
 
